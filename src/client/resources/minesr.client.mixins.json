@@ -6,7 +6,9 @@
 		"GameRendererMixin",
 		"SkyRendererMixin",
 		"ShaderManagerMixin",
-		"GlobalSettingsUniformMixin"
+		"GlobalSettingsUniformMixin",
+		"MinecraftMixin",
+		"MinecraftAccessor"
 	],
 	"injectors": {
 		"defaultRequire": 1

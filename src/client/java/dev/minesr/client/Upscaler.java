@@ -80,6 +80,15 @@ public final class Upscaler {
 			.withColorTargetState(FLOAT_TARGET)
 			.build();
 
+	/** Plain copy, for frame generation with upscaling off. */
+	private static final RenderPipeline BLIT = RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+			.withLocation(id("pipeline/passthrough"))
+			.withVertexShader(Identifier.withDefaultNamespace("core/screenquad"))
+			.withFragmentShader(id("post/blit"))
+			.withBindGroupLayout(BindGroupLayout.builder().withSampler("InSampler").build())
+			.withColorTargetState(ColorTargetState.DEFAULT)
+			.build();
+
 	/** Neural step 1: the network, once per low-res pixel (decide.fsh), compiled for its size. */
 	private static RenderPipeline decidePipeline(int hidden) {
 		return RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
@@ -189,6 +198,23 @@ public final class Upscaler {
 		return capture;
 	}
 
+	private boolean passthrough;    // frame generation without upscaling: full resolution, no jitter
+	private boolean motionReady;    // this frame's motion texture is valid
+	private boolean continuous;     // this frame continues the previous one (no cut, teleport or reset)
+
+	/** For frame generation: motion of this frame (per low-res pixel: previous uv - current uv). */
+	public GpuTextureView motionView() {
+		return motionView;
+	}
+
+	public boolean motionReadyThisFrame() {
+		return motionReady && frameActiveForMotion;
+	}
+
+	public boolean continuousWithPreviousFrame() {
+		return continuous;
+	}
+
 	public void setNetwork(NeuralWeights network, String source) {
 		net = network;
 		neuralPipeline = network == null ? null : decidePipeline(network.hidden());
@@ -222,7 +248,7 @@ public final class Upscaler {
 		if (capture.isActive()) {
 			return capture.lodScale();
 		}
-		return config.enabled && config.lodBias && failure == null ? config.qualityPreset().scale : 1.0f;
+		return config.enabled && config.lodBias && failure == null && !passthrough ? config.qualityPreset().scale : 1.0f;
 	}
 
 	public boolean isLevelActive() {
@@ -261,7 +287,10 @@ public final class Upscaler {
 			captureFrame = true;
 			return projection; // jitter is applied offline, when the low-res inputs are cut out
 		}
-		if (!config.enabled || failure != null || !checkPipelines()) {
+		// Frame generation needs motion even with upscaling off: then the world renders at full
+		// resolution without jitter and passes straight through (the image stays vanilla).
+		passthrough = !config.enabled && config.frameGeneration;
+		if ((!config.enabled && !passthrough) || failure != null || !checkPipelines()) {
 			return projection;
 		}
 		ensureTargets(width, height);
@@ -276,7 +305,7 @@ public final class Upscaler {
 
 		frame++;
 		phases = Jitter.phaseCount(low.width, outWidth);
-		float[] j = config.gridJitter
+		float[] j = passthrough ? new float[2] : config.gridJitter
 				? Jitter.gridOffset(frame, Jitter.gridFactor(low.width, outWidth))
 				: Jitter.offset(frame, phases);
 		jitterX = j[0];
@@ -286,8 +315,14 @@ public final class Upscaler {
 		return new Matrix4f().translation(2.0f * jitterX / low.width, 2.0f * jitterY / low.height, 0.0f).mul(projection);
 	}
 
+	private boolean frameActiveForMotion;
+
 	public void beginLevel() {
 		frames++;
+		frameActiveForMotion = frameActive;
+		if (!frameActive) {
+			motionReady = false;
+		}
 		timer.stamp(GpuTimer.WORLD_START);
 		levelActive = frameActive || captureFrame;
 	}
@@ -363,6 +398,7 @@ public final class Upscaler {
 
 	private void runPasses(RenderTarget main) {
 		long start = System.nanoTime();
+		motionReady = false;
 		CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
 		int previous = current;
 		current ^= 1;
@@ -399,6 +435,21 @@ public final class Upscaler {
 				pass.draw(3, 1, 0, 0);
 			}
 			timer.stamp(GpuTimer.MOTION_END);
+			motionReady = true;
+			continuous = historyValid;
+		}
+		if (passthrough) {
+			try (RenderPass pass = encoder.createRenderPass(() -> "MineSR passthrough", main.getColorTextureView(), Optional.empty())) {
+				pass.setPipeline(BLIT);
+				RenderSystem.bindDefaultUniforms(pass);
+				pass.bindTexture("InSampler", low.getColorTextureView(), nearest);
+				pass.draw(3, 1, 0, 0);
+			}
+			upscaleUbo.rotate();
+			sharpenUbo.rotate();
+			historyValid = true;
+			timer.stamp(GpuTimer.UPSCALE_END);
+			return;
 		}
 		boolean neural = !v1 && neuralActive();
 		if (neural && netBuffer == null) {
@@ -450,9 +501,9 @@ public final class Upscaler {
 	}
 
 	private void ensureTargets(int width, int height) {
-		Quality quality = config.qualityPreset();
-		int lowWidth = Quality.scaled(width, quality.scale);
-		int lowHeight = Quality.scaled(height, quality.scale);
+		float scale = passthrough ? 1.0f : config.qualityPreset().scale;
+		int lowWidth = Quality.scaled(width, scale);
+		int lowHeight = Quality.scaled(height, scale);
 		if (low != null && low.width == lowWidth && low.height == lowHeight && outWidth == width && outHeight == height) {
 			return;
 		}
@@ -542,7 +593,7 @@ public final class Upscaler {
 		GpuDevice device = RenderSystem.getDevice();
 		if (!device.precompilePipeline(MOTION).isValid() || !device.precompilePipeline(TEMPORAL).isValid()
 				|| !device.precompilePipeline(TEMPORAL_V1).isValid()
-				|| !device.precompilePipeline(TEMPORAL_NN).isValid()
+				|| !device.precompilePipeline(TEMPORAL_NN).isValid() || !device.precompilePipeline(BLIT).isValid()
 				|| (neuralPipeline != null && !device.precompilePipeline(neuralPipeline).isValid()) || !device.precompilePipeline(SHARPEN).isValid()
 				|| !Capture.pipelinesValid()) {
 			fail("shaders failed to compile (see log)", null);

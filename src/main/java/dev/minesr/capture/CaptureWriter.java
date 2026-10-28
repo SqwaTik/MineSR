@@ -100,6 +100,11 @@ public final class CaptureWriter {
 		return bytes + text.length;
 	}
 
+	/** RGB bottom-up -> PNG top-down (public entry point for debug snapshots). */
+	public static long savePng(Path file, byte[] rgb, int width, int height) throws IOException {
+		return png(file, rgb, width, height);
+	}
+
 	/** RGB bottom-up -> PNG top-down. */
 	static long png(Path file, byte[] rgb, int width, int height) throws IOException {
 		byte[] topDown = new byte[rgb.length];

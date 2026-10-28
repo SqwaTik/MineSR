@@ -43,12 +43,26 @@ public abstract class GameRendererMixin {
 
 	@Inject(method = "renderLevel", at = @At(value = "INVOKE", target = WORLD_RENDER))
 	private void minesr$beginWorld(DeltaTracker deltaTracker, CallbackInfo ci) {
+		MineSRClient.presentPendingFrameIfDue();
 		MineSRClient.upscaler().beginLevel();
 	}
 
 	@Inject(method = "renderLevel", at = @At(value = "INVOKE", target = WORLD_RENDER, shift = At.Shift.AFTER))
 	private void minesr$endWorld(DeltaTracker deltaTracker, CallbackInfo ci) {
 		MineSRClient.upscaler().endLevel(mainRenderTarget);
+		MineSRClient.frameGen().beginOverlay(mainRenderTarget); // hand, effects and GUI go onto their own layer
+		MineSRClient.presentPendingFrameIfDue();
+	}
+
+	@Inject(method = "render", at = @At("HEAD"))
+	private void minesr$frameStart(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
+		MineSRClient.presentPendingFrameIfDue();
+	}
+
+	@Inject(method = "render", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/render/GuiRenderer;render()V"))
+	private void minesr$beforeGui(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
+		MineSRClient.frameGen().beforeGui();
+		MineSRClient.presentPendingFrameIfDue(true);
 	}
 
 	/** Everything that draws the world asks for the main target through this method. */
@@ -56,6 +70,8 @@ public abstract class GameRendererMixin {
 	private void minesr$lowResDuringWorld(CallbackInfoReturnable<RenderTarget> cir) {
 		if (MineSRClient.upscaler().isLevelActive()) {
 			cir.setReturnValue(MineSRClient.upscaler().lowTarget());
+		} else if (MineSRClient.frameGen().isOverlayActive()) {
+			cir.setReturnValue(MineSRClient.frameGen().overlayTarget());
 		}
 	}
 

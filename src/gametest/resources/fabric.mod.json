@@ -5,6 +5,6 @@
 	"name": "MineSR client tests",
 	"environment": "*",
 	"entrypoints": {
-		"fabric-client-gametest": ["dev.minesr.test.MineSRCaptureTest", "dev.minesr.test.MineSRScreenshotTest", "dev.minesr.test.MineSRDatasetTest", "dev.minesr.test.MineSRFlickerTest"]
+		"fabric-client-gametest": ["dev.minesr.test.MineSRCaptureTest", "dev.minesr.test.MineSRScreenshotTest", "dev.minesr.test.MineSRDatasetTest", "dev.minesr.test.MineSRFlickerTest", "dev.minesr.test.MineSRFrameGenTest"]
 	}
 }

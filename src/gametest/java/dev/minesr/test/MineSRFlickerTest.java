@@ -37,9 +37,14 @@ public class MineSRFlickerTest implements FabricClientGameTest {
 
 	@Override
 	public void runTest(ClientGameTestContext context) {
-		if (!"flicker".equals(System.getenv("MINESR_TEST"))) {
+		String test = System.getenv("MINESR_TEST");
+		if (!"flicker".equals(test) && !"flicker-long".equals(test)) {
 			return;
 		}
+		// flicker-long: 120 frames of fewer modes, to see flicker that comes and goes over time.
+		boolean longRun = "flicker-long".equals(test);
+		int frames = longRun ? 120 : 12;
+		Mode[] modes = longRun ? new Mode[] {MODES[0], MODES[2], MODES[4]} : MODES;
 		try (TestSingleplayerContext world = context.worldBuilder()
 				.setUseConsistentSettings(false)
 				.adjustSettings(settings -> settings.setSeed("minesr"))
@@ -66,7 +71,7 @@ public class MineSRFlickerTest implements FabricClientGameTest {
 			world.getConnection().waitForChunksRender();
 			context.waitTicks(100);
 
-			for (Mode mode : MODES) {
+			for (Mode mode : modes) {
 				context.runOnClient(mc -> {
 					MineSRClient.config().enabled = mode.enabled();
 					MineSRClient.config().quality = mode.quality().id();
@@ -80,9 +85,18 @@ public class MineSRFlickerTest implements FabricClientGameTest {
 				});
 				context.waitTicks(60); // history fully settled
 				Path dir = context.computeOnClient(mc -> mc.gameDirectory.toPath().resolve("flicker").resolve(mode.name()));
-				for (int i = 0; i < 12; i++) {
-					context.takeScreenshot(TestScreenshotOptions.of(String.format("%02d", i))
+				StringBuilder frameNumbers = new StringBuilder();
+				for (int i = 0; i < frames; i++) {
+					context.takeScreenshot(TestScreenshotOptions.of(String.format("%03d", i))
 							.withDestinationDir(dir).disableCounterPrefix());
+					long frameNumber = context.computeOnClient(mc -> MineSRClient.upscaler().frameCount());
+					frameNumbers.append(frameNumber).append(' ');
+				}
+				// Which game frame each screenshot is: tells whether shots are consecutive frames.
+				try {
+					java.nio.file.Files.writeString(dir.resolve("frames.txt"), frameNumbers.toString().trim());
+				} catch (java.io.IOException e) {
+					throw new RuntimeException(e);
 				}
 			}
 		}

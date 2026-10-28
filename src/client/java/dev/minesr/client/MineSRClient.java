@@ -16,6 +16,7 @@ import net.minecraft.network.chat.Component;
 public final class MineSRClient implements ClientModInitializer {
 	private static MineSRConfig config;
 	private static Upscaler upscaler;
+	private static FrameGen frameGen;
 	private ClientLevel lastLevel;
 
 	public static Upscaler upscaler() {
@@ -26,10 +27,26 @@ public final class MineSRClient implements ClientModInitializer {
 		return config;
 	}
 
+	public static FrameGen frameGen() {
+		return frameGen;
+	}
+
+	/** Frame generation pacing: called at a few points in each frame to show the waiting real frame on time. */
+	public static void presentPendingFrameIfDue() {
+		presentPendingFrameIfDue(false);
+	}
+
+	public static void presentPendingFrameIfDue(boolean lastChance) {
+		if (frameGen != null) {
+			frameGen.maybePresentPending(((dev.minesr.client.mixin.MinecraftAccessor) Minecraft.getInstance()).minesr$windowSurface(), lastChance);
+		}
+	}
+
 	@Override
 	public void onInitializeClient() {
 		config = MineSRConfig.load();
 		upscaler = new Upscaler(config);
+		frameGen = new FrameGen(config, upscaler);
 		loadNetwork();
 		ClientTickEvents.END_CLIENT_TICK.register(this::onTick);
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, context) -> {
@@ -63,6 +80,9 @@ public final class MineSRClient implements ClientModInitializer {
 			root.then(ClientCommands.literal("neural")
 					.then(ClientCommands.literal("on").executes(ctx -> setNeural(ctx, true)))
 					.then(ClientCommands.literal("off").executes(ctx -> setNeural(ctx, false))));
+			root.then(ClientCommands.literal("framegen")
+					.then(ClientCommands.literal("on").executes(ctx -> setFrameGen(ctx, true)))
+					.then(ClientCommands.literal("off").executes(ctx -> setFrameGen(ctx, false))));
 			root.then(ClientCommands.literal("retry").executes(ctx -> {
 				upscaler.retry();
 				return status(ctx);
@@ -122,6 +142,16 @@ public final class MineSRClient implements ClientModInitializer {
 		}
 	}
 
+	private int setFrameGen(CommandContext<FabricClientCommandSource> ctx, boolean on) {
+		config.frameGeneration = on;
+		config.save();
+		if (!on) {
+			frameGen.release();
+		}
+		upscaler.resetHistory();
+		return status(ctx);
+	}
+
 	private int setNeural(CommandContext<FabricClientCommandSource> ctx, boolean on) {
 		config.neural = on;
 		config.save();
@@ -138,7 +168,7 @@ public final class MineSRClient implements ClientModInitializer {
 	}
 
 	private int status(CommandContext<FabricClientCommandSource> ctx) {
-		ctx.getSource().sendFeedback(Component.literal("MineSR " + upscaler.describe()));
+		ctx.getSource().sendFeedback(Component.literal("MineSR " + upscaler.describe() + "; " + frameGen.describe()));
 		return 1;
 	}
 }
