@@ -1,0 +1,14 @@
+{
+	"required": true,
+	"package": "dev.minesr.client.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"GameRendererMixin",
+		"SkyRendererMixin",
+		"ShaderManagerMixin",
+		"GlobalSettingsUniformMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

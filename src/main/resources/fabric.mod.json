@@ -1,0 +1,22 @@
+{
+	"schemaVersion": 1,
+	"id": "minesr",
+	"version": "${version}",
+	"name": "MineSR",
+	"description": "Temporal upscaler: renders the world at lower resolution and rebuilds full resolution from jittered frames. Neural version in progress.",
+	"authors": ["SqwaTik"],
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["dev.minesr.client.MineSRClient"]
+	},
+	"mixins": [
+		{"config": "minesr.client.mixins.json", "environment": "client"}
+	],
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
